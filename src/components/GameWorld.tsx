@@ -434,11 +434,11 @@ export const GameWorld: React.FC<GameWorldProps> = ({
     }> = [];
 
     // Class skill trackers
-    let shieldMesh: THREE.Mesh | null = null;
+    let shieldMesh: THREE.Object3D | null = null;
     let shieldActiveTimer = 0;
 
     interface SkillMeteor {
-      mesh: THREE.Mesh;
+      mesh: THREE.Object3D;
       pos: THREE.Vector3;
       targetPos: THREE.Vector3;
       progress: number;
@@ -448,7 +448,7 @@ export const GameWorld: React.FC<GameWorldProps> = ({
     const activeMeteors: SkillMeteor[] = [];
 
     interface SkillWindArrow {
-      mesh: THREE.Mesh;
+      mesh: THREE.Object3D;
       pos: THREE.Vector3;
       dir: THREE.Vector3;
       speed: number;
@@ -456,6 +456,22 @@ export const GameWorld: React.FC<GameWorldProps> = ({
       maxAge: number;
     }
     const activeWindArrows: SkillWindArrow[] = [];
+
+    // Recursive disposal helper
+    const disposeObject = (obj: THREE.Object3D) => {
+      obj.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach((m) => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
+    };
 
     // Slash hitboxes (P key)
     const activeHitboxes: Array<{
@@ -478,6 +494,13 @@ export const GameWorld: React.FC<GameWorldProps> = ({
     }
     const potions: PotionEntity[] = [];
 
+    // Mana Potion setup & definition
+    interface ManaEntity {
+      mesh: THREE.Mesh;
+      pos: THREE.Vector3;
+    }
+    const manas: ManaEntity[] = [];
+
     const potionTex = textureLoader.load('https://raw.githubusercontent.com/banyapon/banyapon.github.io/refs/heads/main/studio/images/potion.png', (txt) => {
       txt.magFilter = THREE.NearestFilter;
       txt.minFilter = THREE.NearestFilter;
@@ -492,6 +515,18 @@ export const GameWorld: React.FC<GameWorldProps> = ({
     });
     const potionGeo = new THREE.PlaneGeometry(1.6, 1.6);
 
+    const manaMat = new THREE.MeshStandardMaterial({
+      map: potionTex,
+      color: 0x3b82f6, // Vibrant blue tint
+      emissive: 0x2563eb, // Glowing cyan/blue emission
+      emissiveIntensity: 2.8,
+      transparent: true,
+      alphaTest: 0.45,
+      side: THREE.DoubleSide,
+      roughness: 0.2,
+      metalness: 0.8
+    });
+
     const spawnPotion = (x: number, z: number) => {
       const pMesh = new THREE.Mesh(potionGeo, potionMat.clone());
       pMesh.position.set(x, 1.0, z);
@@ -501,9 +536,26 @@ export const GameWorld: React.FC<GameWorldProps> = ({
       potions.push({ mesh: pMesh, pos: new THREE.Vector3(x, 1.0, z) });
     };
 
+    const spawnMana = (x: number, z: number) => {
+      const mMesh = new THREE.Mesh(potionGeo, manaMat.clone());
+      mMesh.position.set(x, 1.0, z);
+      mMesh.castShadow = true;
+      mMesh.receiveShadow = true;
+      scene.add(mMesh);
+      manas.push({ mesh: mMesh, pos: new THREE.Vector3(x, 1.0, z) });
+    };
+
     // Spawn initial potions
     for (let i = 0; i < 4; i++) {
       spawnPotion(
+        THREE.MathUtils.randFloat(-22, 22),
+        THREE.MathUtils.randFloat(-22, 22)
+      );
+    }
+
+    // Spawn initial mana potions
+    for (let i = 0; i < 4; i++) {
+      spawnMana(
         THREE.MathUtils.randFloat(-22, 22),
         THREE.MathUtils.randFloat(-22, 22)
       );
@@ -911,10 +963,14 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           spawnBoss();
         }
 
-        // 35% chance to drop a healing potion (item)
-        if (Math.random() < 0.35) {
+        // 45% chance to drop a recovery item (20% for Health Potion, 25% for Mana Potion)
+        const randDrop = Math.random();
+        if (randDrop < 0.20) {
           spawnPotion(enemy.pos.x, enemy.pos.z);
           addLog("💊 ศัตรูทำไอเทมยาฟื้นพลังชีวิต (POTION) ตกหล่นบนพื้น!", "info");
+        } else if (randDrop < 0.45) {
+          spawnMana(enemy.pos.x, enemy.pos.z);
+          addLog("🧪 ศัตรูทำไอเทมขวดฟื้นมานา (MANA POTION) ตกหล่นบนพื้น!", "info");
         }
       }
     };
@@ -962,11 +1018,12 @@ export const GameWorld: React.FC<GameWorldProps> = ({
         spawnWarpPortal(boss.pos.x, boss.pos.z);
         spawnNpc(boss.pos.x, boss.pos.z - 4);
 
-        // Spawn 3 victory potion drops around Boss position!
+        // Spawn victory health and mana potions around Boss position!
         spawnPotion(boss.pos.x - 1.5, boss.pos.z - 1.5);
-        spawnPotion(boss.pos.x + 1.5, boss.pos.z - 1.5);
+        spawnMana(boss.pos.x + 1.5, boss.pos.z - 1.5);
         spawnPotion(boss.pos.x, boss.pos.z + 1.5);
-        addLog("💊 บอสถูกกำจัด! ค้นพบขวดยาฟื้นพลังขนาดใหญ่ 3 ขวดตกอยู่รอบสังเวียน!", "info");
+        spawnMana(boss.pos.x - 1.5, boss.pos.z + 1.5);
+        addLog("💊 บอสถูกกำจัด! ค้นพบขวดยาฟื้นฟูพลังชีวิตและขวดมานาขนาดใหญ่รวม 4 ขวดตกอยู่รอบสังเวียน!", "info");
       }
     };
 
@@ -1062,25 +1119,58 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           
           if (shieldMesh) {
             scene.remove(shieldMesh);
-            shieldMesh.geometry.dispose();
-            if (Array.isArray(shieldMesh.material)) shieldMesh.material.forEach(m => m.dispose());
-            else shieldMesh.material.dispose();
+            disposeObject(shieldMesh);
           }
 
-          // Create a glowing digital wireframe sphere shield around hero
-          const shieldGeo = new THREE.SphereGeometry(1.6, 24, 12);
-          const shieldMat = new THREE.MeshStandardMaterial({
+          // Create a grouped multi-layered shield
+          const shieldGroup = new THREE.Group();
+
+          // Inner pulsing energy sphere
+          const innerGeo = new THREE.SphereGeometry(1.3, 24, 12);
+          const innerMat = new THREE.MeshStandardMaterial({
             color: 0xfacc15,
-            emissive: 0xfacc15,
+            emissive: 0xeab308,
             emissiveIntensity: 1.8,
             transparent: true,
-            opacity: 0.45,
+            opacity: 0.35,
+            roughness: 0.1
+          });
+          const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+          innerMesh.name = "inner";
+          shieldGroup.add(innerMesh);
+
+          // Outer orbiting forcefield wireframe
+          const outerGeo = new THREE.SphereGeometry(1.65, 12, 6);
+          const outerMat = new THREE.MeshStandardMaterial({
+            color: 0xf59e0b,
+            emissive: 0xf97316,
+            emissiveIntensity: 3.5,
+            transparent: true,
+            opacity: 0.55,
             wireframe: true
           });
-          shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
-          shieldMesh.position.copy(playerPos);
-          shieldMesh.position.y = playerPos.y + 0.4;
-          scene.add(shieldMesh);
+          const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+          outerMesh.name = "outer";
+          shieldGroup.add(outerMesh);
+
+          // Glowing floor runic ring
+          const runeGeo = new THREE.RingGeometry(0.1, 1.8, 32);
+          const runeMat = new THREE.MeshBasicMaterial({
+            color: 0xfacc15,
+            transparent: true,
+            opacity: 0.75,
+            side: THREE.DoubleSide
+          });
+          const runeMesh = new THREE.Mesh(runeGeo, runeMat);
+          runeMesh.rotation.x = -Math.PI / 2;
+          runeMesh.position.y = -0.38;
+          runeMesh.name = "rune";
+          shieldGroup.add(runeMesh);
+
+          shieldGroup.position.copy(playerPos);
+          shieldGroup.position.y = playerPos.y + 0.4;
+          scene.add(shieldGroup);
+          shieldMesh = shieldGroup;
 
         } else if (selectedClass.id === 'mage') {
           // ☄️ Aether Mage: Supernova Strike
@@ -1153,7 +1243,7 @@ export const GameWorld: React.FC<GameWorldProps> = ({
             }
           }
 
-          // Leave a shadow smoke ring at starting position
+          // Leave a shadow smoke ring and a glorious vertical shadow rift beam at starting position
           const enterRingGeo = new THREE.RingGeometry(0.1, 0.4, 16);
           const enterRingMat = new THREE.MeshBasicMaterial({ color: 0xa21caf, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
           const enterRing = new THREE.Mesh(enterRingGeo, enterRingMat);
@@ -1161,6 +1251,14 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           enterRing.position.set(playerPos.x, 0.05, playerPos.z);
           scene.add(enterRing);
           activeRings.push({ mesh: enterRing, scale: 0.2, opacity: 0.8, maxScale: 4.5 });
+
+          // Vertical shadow beam
+          const enterBeamGeo = new THREE.CylinderGeometry(0.1, 0.8, 4.0, 12, 1, true);
+          const enterBeamMat = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+          const enterBeam = new THREE.Mesh(enterBeamGeo, enterBeamMat);
+          enterBeam.position.set(playerPos.x, 1.5, playerPos.z);
+          scene.add(enterBeam);
+          activeRings.push({ mesh: enterBeam, scale: 0.2, opacity: 0.9, maxScale: 3.5 });
 
           if (closestTarget) {
             // Instant blink behind target!
@@ -1197,7 +1295,7 @@ export const GameWorld: React.FC<GameWorldProps> = ({
             addLog("👤 [Shadowstep Strike] ไร้ขอบเขตเป้าหมาย! ฮีโร่สไลด์ย้ายมิติพริบตาไปข้างหน้าอย่างไร้ร่องรอย!", "skill");
           }
 
-          // Arrive visual ring at landing position
+          // Arrive visual ring and vertical shadow beam at landing position
           const exitRingGeo = new THREE.RingGeometry(0.1, 0.4, 16);
           const exitRingMat = new THREE.MeshBasicMaterial({ color: 0x6b21a8, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
           const exitRing = new THREE.Mesh(exitRingGeo, exitRingMat);
@@ -1206,24 +1304,64 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           scene.add(exitRing);
           activeRings.push({ mesh: exitRing, scale: 0.2, opacity: 0.8, maxScale: 4.5 });
 
+          // Landing vertical shadow beam
+          const exitBeamGeo = new THREE.CylinderGeometry(0.1, 0.8, 4.0, 12, 1, true);
+          const exitBeamMat = new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+          const exitBeam = new THREE.Mesh(exitBeamGeo, exitBeamMat);
+          exitBeam.position.set(playerPos.x, 1.5, playerPos.z);
+          scene.add(exitBeam);
+          activeRings.push({ mesh: exitBeam, scale: 0.2, opacity: 0.9, maxScale: 3.5 });
+
         } else if (selectedClass.id === 'ranger') {
           // 🏹 Windrunner: Galeforce Arrow
           playSound('shoot');
           addLog("🏹 Windrunner น้าวคันศรพัดส่ง [Galeforce Arrow] พายุสลาตันสีมรกตทะลวงแนวรบ!", "skill");
 
-          // Arrow model
-          const arrowGeo = new THREE.CylinderGeometry(0.14, 0.35, 3.2, 12);
+          // Upgrade Arrow model to an impressive multi-layered wind-drilling Group
+          const arrowGroup = new THREE.Group();
+
+          // Core sharp emerald bolt
+          const arrowGeo = new THREE.CylinderGeometry(0.04, 0.22, 2.5, 8);
           arrowGeo.rotateX(Math.PI / 2);
           const arrowMat = new THREE.MeshStandardMaterial({
-            color: 0x10b981,
-            emissive: 0x34d399,
-            emissiveIntensity: 2.2,
-            transparent: true,
-            opacity: 0.85
+            color: 0x059669,
+            emissive: 0x10b981,
+            emissiveIntensity: 2.5
           });
-          const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
-          arrowMesh.position.set(playerPos.x, playerPos.y + 0.4, playerPos.z);
-          scene.add(arrowMesh);
+          const coreMesh = new THREE.Mesh(arrowGeo, arrowMat);
+          coreMesh.name = "core";
+          arrowGroup.add(coreMesh);
+
+          // Outer wind drilling wireframe helix
+          const helixGeo = new THREE.CylinderGeometry(0.4, 0.1, 2.8, 8, 4, true);
+          helixGeo.rotateX(Math.PI / 2);
+          const helixMat = new THREE.MeshStandardMaterial({
+            color: 0x34d399,
+            emissive: 0x059669,
+            emissiveIntensity: 3.5,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.7
+          });
+          const helixMesh = new THREE.Mesh(helixGeo, helixMat);
+          helixMesh.name = "helix";
+          arrowGroup.add(helixMesh);
+
+          // Back trail vortex ring
+          const trailGeo = new THREE.TorusGeometry(0.5, 0.06, 8, 24);
+          const trailMat = new THREE.MeshBasicMaterial({
+            color: 0x10b981,
+            transparent: true,
+            opacity: 0.8
+          });
+          const trailMesh = new THREE.Mesh(trailGeo, trailMat);
+          trailMesh.position.z = -1.2;
+          trailMesh.name = "trail";
+          arrowGroup.add(trailMesh);
+
+          arrowGroup.position.set(playerPos.x, playerPos.y + 0.4, playerPos.z);
+          scene.add(arrowGroup);
+          const arrowMesh = arrowGroup;
 
           const shotDir = new THREE.Vector3(facingLeft ? -1.0 : 1.0, 0.0, 0.0);
           activeWindArrows.push({
@@ -1453,6 +1591,47 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           setTimeout(() => {
             if (!gameIsOver) {
               spawnPotion(
+                THREE.MathUtils.randFloat(-22, 22),
+                THREE.MathUtils.randFloat(-22, 22)
+              );
+            }
+          }, THREE.MathUtils.randFloat(4000, 8000));
+        }
+      }
+
+      // ----------------------------------------------------
+      // UPDATE MANA POTIONS (Collection and Floating Animation)
+      // ----------------------------------------------------
+      for (let i = manas.length - 1; i >= 0; i--) {
+        const mana = manas[i];
+        mana.mesh.position.y = 1.0 + Math.sin(clock.getElapsedTime() * 4.5 + i) * 0.15;
+        
+        // Force mana potions to stand upright facing the camera
+        const manaAngle = Math.atan2(camera.position.x - mana.mesh.position.x, camera.position.z - mana.mesh.position.z);
+        mana.mesh.rotation.set(0, manaAngle, 0);
+
+        const distToPlayer = playerPos.distanceTo(mana.pos);
+        if (distToPlayer < 1.4 && !gameIsOver) {
+          scene.remove(mana.mesh);
+          mana.mesh.geometry.dispose();
+          if (Array.isArray(mana.mesh.material)) mana.mesh.material.forEach(m => m.dispose());
+          else mana.mesh.material.dispose();
+          manas.splice(i, 1);
+
+          if (currentMP < 100) {
+            currentMP = Math.min(100, currentMP + 35);
+            setPlayerMP(Math.floor(currentMP));
+            addLog("🧪 เก็บขวดฟื้นมานาสำเร็จ! ฟื้นฟูพลังเวท (+35 MP) ⚡✨", "info");
+          } else {
+            addLog("🧪 เก็บขวดฟื้นมานา! (มานาเต็มแล้ว ได้โบนัสคะแนน +50)", "info");
+            score += 50;
+            setPlayerScore(score);
+          }
+          playSound('hit');
+
+          setTimeout(() => {
+            if (!gameIsOver) {
+              spawnMana(
                 THREE.MathUtils.randFloat(-22, 22),
                 THREE.MathUtils.randFloat(-22, 22)
               );
@@ -1932,15 +2111,33 @@ export const GameWorld: React.FC<GameWorldProps> = ({
         if (shieldMesh) {
           shieldMesh.position.copy(playerPos);
           shieldMesh.position.y = playerPos.y + 0.4; // Center around player body
-          shieldMesh.rotation.y += delta * 2.5;
-          shieldMesh.rotation.x += delta * 1.2;
+
+          // Retrieve and animate sub-meshes dynamically!
+          const inner = shieldMesh.getObjectByName("inner");
+          const outer = shieldMesh.getObjectByName("outer");
+          const rune = shieldMesh.getObjectByName("rune");
+
+          const pulse = 1.0 + Math.sin(clock.getElapsedTime() * 7.5) * 0.08;
+
+          if (inner) {
+            inner.rotation.y -= delta * 1.5;
+            inner.rotation.z += delta * 0.5;
+            inner.scale.set(pulse, pulse, pulse);
+          }
+          if (outer) {
+            outer.rotation.y += delta * 3.0;
+            outer.rotation.x += delta * 1.5;
+          }
+          if (rune) {
+            rune.rotation.z -= delta * 4.0;
+            const runePulse = 1.0 + Math.sin(clock.getElapsedTime() * 7.5) * 0.15;
+            rune.scale.set(runePulse, runePulse, 1);
+          }
         }
         if (shieldActiveTimer <= 0) {
           if (shieldMesh) {
             scene.remove(shieldMesh);
-            shieldMesh.geometry.dispose();
-            if (Array.isArray(shieldMesh.material)) shieldMesh.material.forEach(m => m.dispose());
-            else shieldMesh.material.dispose();
+            disposeObject(shieldMesh);
             shieldMesh = null;
             addLog("🛡️ โล่บาเรียเหล็กสัจจะ [Iron Fortress] ของ Vanguard สลายตัวไปแล้ว", "info");
           }
@@ -1963,7 +2160,7 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           // Explode at destination!
           playSound('burst');
           
-          // Elegant visual impact shockwave
+          // Elegant visual impact shockwave ring
           const ringGeo = new THREE.RingGeometry(0.1, 0.4, 32);
           const ringMat = new THREE.MeshStandardMaterial({
             color: 0x3b82f6,
@@ -1982,6 +2179,26 @@ export const GameWorld: React.FC<GameWorldProps> = ({
             scale: 0.1,
             opacity: 1.0,
             maxScale: 11.5 // Massive supernova field!
+          });
+
+          // Elegant visual impact shockwave dome (half-sphere expanding)
+          const domeGeo = new THREE.SphereGeometry(0.1, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+          const domeMat = new THREE.MeshStandardMaterial({
+            color: 0x8b5cf6,
+            emissive: 0xd946ef,
+            emissiveIntensity: 3.5,
+            transparent: true,
+            opacity: 0.8,
+            wireframe: true
+          });
+          const dome = new THREE.Mesh(domeGeo, domeMat);
+          dome.position.set(met.targetPos.x, 0.02, met.targetPos.z);
+          scene.add(dome);
+          activeRings.push({
+            mesh: dome,
+            scale: 0.1,
+            opacity: 0.8,
+            maxScale: 6.5
           });
 
           // Hit detection
@@ -2004,9 +2221,7 @@ export const GameWorld: React.FC<GameWorldProps> = ({
 
           // Clean up meteor mesh
           scene.remove(met.mesh);
-          met.mesh.geometry.dispose();
-          if (Array.isArray(met.mesh.material)) met.mesh.material.forEach(m => m.dispose());
-          else met.mesh.material.dispose();
+          disposeObject(met.mesh);
           activeMeteors.splice(i, 1);
         }
       }
@@ -2018,7 +2233,21 @@ export const GameWorld: React.FC<GameWorldProps> = ({
 
         arrow.pos.addScaledVector(arrow.dir, arrow.speed * delta);
         arrow.mesh.position.copy(arrow.pos);
-        arrow.mesh.rotation.z += delta * 20.0; // Rapidly spin the arrow like a drilling vortex!
+
+        // Retrieve and rotate sub-meshes of the arrow Group!
+        const core = arrow.mesh.getObjectByName("core");
+        const helix = arrow.mesh.getObjectByName("helix");
+        const trail = arrow.mesh.getObjectByName("trail");
+
+        if (core) {
+          core.rotation.z += delta * 15.0;
+        }
+        if (helix) {
+          helix.rotation.z -= delta * 30.0; // spin extremely fast in the opposite direction!
+        }
+        if (trail) {
+          trail.rotation.y += delta * 8.0;
+        }
 
         // Collisions with regular enemies
         enemies.forEach(enemy => {
@@ -2046,9 +2275,7 @@ export const GameWorld: React.FC<GameWorldProps> = ({
 
         if (arrow.age >= arrow.maxAge) {
           scene.remove(arrow.mesh);
-          arrow.mesh.geometry.dispose();
-          if (Array.isArray(arrow.mesh.material)) arrow.mesh.material.forEach(m => m.dispose());
-          else arrow.mesh.material.dispose();
+          disposeObject(arrow.mesh);
           activeWindArrows.splice(i, 1);
         }
       }
@@ -2143,6 +2370,14 @@ export const GameWorld: React.FC<GameWorldProps> = ({
         pot.mesh.geometry.dispose();
         if (Array.isArray(pot.mesh.material)) pot.mesh.material.forEach(m => m.dispose());
         else pot.mesh.material.dispose();
+      });
+
+      // Clean up mana potions
+      manas.forEach(mana => {
+        scene.remove(mana.mesh);
+        mana.mesh.geometry.dispose();
+        if (Array.isArray(mana.mesh.material)) mana.mesh.material.forEach(m => m.dispose());
+        else mana.mesh.material.dispose();
       });
 
       renderer.dispose();
