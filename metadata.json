@@ -1,0 +1,8 @@
+{
+  "name": "Game Lobby Screen",
+  "description": "A full-screen game entry lobby with logo animation, start menu, controls configuration, and graphics settings.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
