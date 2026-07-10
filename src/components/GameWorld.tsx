@@ -1112,10 +1112,10 @@ export const GameWorld: React.FC<GameWorldProps> = ({
         setPlayerMP(Math.floor(currentMP));
 
         if (selectedClass.id === 'warrior') {
-          // 🛡️ Vanguard: Iron Fortress
+          // 🛡️ Vanguard: Iron Fortress & Aegis Pulse (Radial AOE defensive-offensive burst!)
           shieldActiveTimer = 5.0;
           playSound('burst');
-          addLog("🛡️ Vanguard เปิดใช้งาน [Iron Fortress]! สร้างบาเรียเหล็กสัจจะป้องกันดาเมจ 100% และสะท้อนความเสียหาย 5 วินาที!", "skill");
+          addLog("🛡️ Vanguard ปลดปล่อยคลื่นโล่เทพเจ้า [Iron Fortress & Aegis Pulse] สร้างเกราะบาเรีย 100% พร้อมคลื่นผลักกระแทกศัตรูรอบตัวรัศมี 6 เมตร!", "skill");
           
           if (shieldMesh) {
             scene.remove(shieldMesh);
@@ -1172,25 +1172,61 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           scene.add(shieldGroup);
           shieldMesh = shieldGroup;
 
+          // Aegis Pulse Radial Shockwave Ring
+          const pulseGeo = new THREE.RingGeometry(0.1, 0.4, 32);
+          const pulseMat = new THREE.MeshStandardMaterial({
+            color: 0xeab308,
+            emissive: 0xfacc15,
+            emissiveIntensity: 3.0,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.9
+          });
+          const pulseRing = new THREE.Mesh(pulseGeo, pulseMat);
+          pulseRing.rotation.x = -Math.PI / 2;
+          pulseRing.position.set(playerPos.x, 0.05, playerPos.z);
+          scene.add(pulseRing);
+          activeRings.push({
+            mesh: pulseRing,
+            scale: 0.2,
+            opacity: 0.9,
+            maxScale: 15.0 // Expands to 6 meters
+          });
+
+          // Actively damage & knock back all enemies around the player
+          enemies.forEach(enemy => {
+            if (enemy.isDead) return;
+            const dist = playerPos.distanceTo(enemy.pos);
+            if (dist < 6.0) {
+              hitEnemy(enemy);
+              // Powerful knockback
+              const pushDir = enemy.pos.clone().sub(playerPos).setY(0).normalize();
+              enemy.pos.addScaledVector(pushDir, 4.5);
+              enemy.mesh.position.copy(enemy.pos);
+            }
+          });
+
+          if (boss && !boss.isDead) {
+            const dist = playerPos.distanceTo(boss.pos);
+            if (dist < 6.0) {
+              hitBoss(2); // Knockback-immune but takes extra damage
+            }
+          }
+
         } else if (selectedClass.id === 'mage') {
-          // ☄️ Aether Mage: Supernova Strike
+          // ☄️ Aether Mage: Supernova Strike (Centered around the player - Radial AOE!)
           playSound('burst');
-          addLog("☄️ Aether Mage เริ่มต้นร่ายมหาเวทย์ [Supernova Strike] อัญเชิญดาวตกยักษ์ลงทัณฑ์ศัตรู!", "skill");
+          addLog("☄️ Aether Mage ระเบิดพลังจิตดวงดาว [Aether Supernova Burst] มหาเวทวงแหวนดวงดาวถล่มรอบตัวรัศมี 7 เมตร!", "skill");
 
-          const offsetDist = facingLeft ? -7.0 : 7.0;
-          const targetPos = new THREE.Vector3(playerPos.x + offsetDist, 0.05, playerPos.z);
-          // Clamp target within arena
-          targetPos.x = THREE.MathUtils.clamp(targetPos.x, -22, 22);
-          targetPos.z = THREE.MathUtils.clamp(targetPos.z, -22, 22);
-
-          const startPos = new THREE.Vector3(targetPos.x - 5.0, 16.0, targetPos.z - 5.0);
+          const targetPos = new THREE.Vector3(playerPos.x, 0.05, playerPos.z);
+          const startPos = new THREE.Vector3(targetPos.x - 2.5, 16.0, targetPos.z - 2.5); // Descend straight onto the player
 
           // Meteor sphere
-          const meteorGeo = new THREE.SphereGeometry(1.0, 16, 16);
+          const meteorGeo = new THREE.SphereGeometry(1.2, 16, 16); // Slightly bigger
           const meteorMat = new THREE.MeshStandardMaterial({
-            color: 0x3b82f6,
-            emissive: 0x8b5cf6,
-            emissiveIntensity: 3.5,
+            color: 0x8b5cf6, // Purple
+            emissive: 0xd946ef, // Glowing magenta
+            emissiveIntensity: 4.5,
             roughness: 0.1,
             metalness: 0.8
           });
@@ -1199,9 +1235,9 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           mMesh.castShadow = true;
           scene.add(mMesh);
 
-          // Spawn ground indicator ring for blast radius
-          const indGeo = new THREE.RingGeometry(0.1, 5.5, 32);
-          const indMat = new THREE.MeshBasicMaterial({ color: 0x8b5cf6, side: THREE.DoubleSide, transparent: true, opacity: 0.35 });
+          // Spawn ground indicator ring for blast radius centered on player
+          const indGeo = new THREE.RingGeometry(0.1, 7.0, 32); // Radius 7.0
+          const indMat = new THREE.MeshBasicMaterial({ color: 0xd946ef, side: THREE.DoubleSide, transparent: true, opacity: 0.45 });
           const indMesh = new THREE.Mesh(indGeo, indMat);
           indMesh.position.copy(targetPos);
           indMesh.rotation.x = -Math.PI / 2;
@@ -1210,7 +1246,7 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           activeRings.push({
             mesh: indMesh,
             scale: 1.0,
-            opacity: 0.35,
+            opacity: 0.45,
             maxScale: 1.0
           });
 
@@ -1219,159 +1255,179 @@ export const GameWorld: React.FC<GameWorldProps> = ({
             pos: startPos.clone(),
             targetPos: targetPos.clone(),
             progress: 0.0,
-            speed: 1.6, // Descends in approx 0.6 seconds
-            explosionRadius: 5.5
+            speed: 1.8, // Descends in approx 0.55 seconds for punchy response
+            explosionRadius: 7.0 // Bigger AOE radius!
           });
 
         } else if (selectedClass.id === 'assassin') {
-          // 👤 Shadow Blade: Shadowstep Strike
-          let closestTarget: any = null;
-          let closestDist = 9999;
-          enemies.forEach(e => {
-            if (e.isDead) return;
-            const dist = playerPos.distanceTo(e.pos);
-            if (dist < closestDist && dist < 12) {
-              closestDist = dist;
-              closestTarget = e;
-            }
-          });
-          if (boss && !boss.isDead) {
-            const dist = playerPos.distanceTo(boss.pos);
-            if (dist < closestDist && dist < 14) {
-              closestDist = dist;
-              closestTarget = boss;
-            }
-          }
+          // 👤 Shadow Blade: Void Tempest Slash (Radial AOE!)
+          playSound('burst');
+          addLog("👤 [Void Tempest Slash] มหาสกิลร่ายระเบิดคลื่นดาบเงาทมิฬรอบตัวรัศมี 6 เมตร ฉีกกระชากวิญญาณศัตรู!", "skill");
 
-          // Leave a shadow smoke ring and a glorious vertical shadow rift beam at starting position
-          const enterRingGeo = new THREE.RingGeometry(0.1, 0.4, 16);
-          const enterRingMat = new THREE.MeshBasicMaterial({ color: 0xa21caf, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+          // 1. Create elegant purple ground shadow ring that expands
+          const enterRingGeo = new THREE.RingGeometry(0.1, 0.4, 32);
+          const enterRingMat = new THREE.MeshBasicMaterial({ color: 0x701a75, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
           const enterRing = new THREE.Mesh(enterRingGeo, enterRingMat);
           enterRing.rotation.x = -Math.PI / 2;
           enterRing.position.set(playerPos.x, 0.05, playerPos.z);
           scene.add(enterRing);
-          activeRings.push({ mesh: enterRing, scale: 0.2, opacity: 0.8, maxScale: 4.5 });
+          activeRings.push({ mesh: enterRing, scale: 0.2, opacity: 0.9, maxScale: 15.0 }); // Massive expansion
 
-          // Vertical shadow beam
-          const enterBeamGeo = new THREE.CylinderGeometry(0.1, 0.8, 4.0, 12, 1, true);
-          const enterBeamMat = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+          // 2. Vertical rising shadow rift beam
+          const enterBeamGeo = new THREE.CylinderGeometry(0.1, 1.2, 5.5, 16, 1, true);
+          const enterBeamMat = new THREE.MeshBasicMaterial({ color: 0xd946ef, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
           const enterBeam = new THREE.Mesh(enterBeamGeo, enterBeamMat);
-          enterBeam.position.set(playerPos.x, 1.5, playerPos.z);
+          enterBeam.position.set(playerPos.x, 2.0, playerPos.z);
           scene.add(enterBeam);
-          activeRings.push({ mesh: enterBeam, scale: 0.2, opacity: 0.9, maxScale: 3.5 });
+          activeRings.push({ mesh: enterBeam, scale: 0.2, opacity: 0.85, maxScale: 8.0 });
 
-          if (closestTarget) {
-            // Instant blink behind target!
-            const offsetDir = (closestTarget.facingLeft ? 1.5 : -1.5);
-            const targetDest = new THREE.Vector3(closestTarget.pos.x + offsetDir, 1.82, closestTarget.pos.z + 0.05);
-            playerPos.copy(targetDest);
-            playerMesh.position.copy(playerPos);
-            facingLeft = (offsetDir > 0) ? false : true;
-
-            // Trigger physical strike
-            playSound('hit');
-            if (closestTarget === boss) {
-              hitBoss(6); // Heavy critical backstab damage on Boss
-              addLog("👤 [Shadowstep Strike] เคลื่อนย้ายเงามืดตลบหลัง Boss! แทงจุดตายจากเบื้องหลังอย่างรุนแรง! (ลดพลังบอส 6 หน่วย) 🗡️⚡", "skill");
-            } else {
-              hitEnemy(closestTarget);
-              hitEnemy(closestTarget); // Guaranteed double strike to execute minion
-              addLog("👤 [Shadowstep Strike] ลอบโจมตีกรีดเงามืดโผล่ด้านหลังมอนสเตอร์ ปลิดชีพเป้าหมายทันที! 🗡️💀", "skill");
+          // 3. Instant direct damage to all enemies in 6.0 radius
+          const aoeRadius = 6.0;
+          enemies.forEach(enemy => {
+            if (enemy.isDead) return;
+            const dist = playerPos.distanceTo(enemy.pos);
+            if (dist < aoeRadius) {
+              hitEnemy(enemy);
+              hitEnemy(enemy); // Double strike!
+              
+              // Draw visual hit spark on the enemy
+              const sparkGeo = new THREE.RingGeometry(0.1, 0.6, 8);
+              const sparkMat = new THREE.MeshBasicMaterial({ color: 0xd946ef, transparent: true, opacity: 1 });
+              const spark = new THREE.Mesh(sparkGeo, sparkMat);
+              spark.rotation.x = -Math.PI / 2;
+              spark.position.set(enemy.pos.x, 0.1, enemy.pos.z);
+              scene.add(spark);
+              activeRings.push({ mesh: spark, scale: 0.2, opacity: 1, maxScale: 3.5 });
             }
+          });
 
-            // Splash damage nearby
-            enemies.forEach(e => {
-              if (e.isDead || e === closestTarget) return;
-              if (playerPos.distanceTo(e.pos) < 3.2) {
-                hitEnemy(e);
-              }
-            });
-          } else {
-            // Dash/Blink forward 7.0 units in facing direction
-            const blinkDist = facingLeft ? -7.0 : 7.0;
-            playerPos.x = THREE.MathUtils.clamp(playerPos.x + blinkDist, -22, 22);
-            playerMesh.position.copy(playerPos);
-            playSound('move');
-            addLog("👤 [Shadowstep Strike] ไร้ขอบเขตเป้าหมาย! ฮีโร่สไลด์ย้ายมิติพริบตาไปข้างหน้าอย่างไร้ร่องรอย!", "skill");
+          if (boss && !boss.isDead) {
+            const dist = playerPos.distanceTo(boss.pos);
+            if (dist < aoeRadius) {
+              hitBoss(6); // Direct heavy chunk damage to Boss
+              addLog("👤 [Void Tempest Slash] เผาผลาญเงามืดคุกคาม Boss! กรีดดาบเงาทะลวงเกราะบอสสำเร็จ (ลดพลังบอส 6 หน่วย) 🗡️⚡", "skill");
+            }
           }
 
-          // Arrive visual ring and vertical shadow beam at landing position
-          const exitRingGeo = new THREE.RingGeometry(0.1, 0.4, 16);
-          const exitRingMat = new THREE.MeshBasicMaterial({ color: 0x6b21a8, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
-          const exitRing = new THREE.Mesh(exitRingGeo, exitRingMat);
-          exitRing.rotation.x = -Math.PI / 2;
-          exitRing.position.set(playerPos.x, 0.05, playerPos.z);
-          scene.add(exitRing);
-          activeRings.push({ mesh: exitRing, scale: 0.2, opacity: 0.8, maxScale: 4.5 });
+          // 4. Spawn 8 shadow crescent daggers shooting outwards in 360 degrees
+          for (let i = 0; i < 8; i++) {
+            const angle = i * (Math.PI / 4);
+            const shotDir = new THREE.Vector3(Math.cos(angle), 0.0, Math.sin(angle));
 
-          // Landing vertical shadow beam
-          const exitBeamGeo = new THREE.CylinderGeometry(0.1, 0.8, 4.0, 12, 1, true);
-          const exitBeamMat = new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
-          const exitBeam = new THREE.Mesh(exitBeamGeo, exitBeamMat);
-          exitBeam.position.set(playerPos.x, 1.5, playerPos.z);
-          scene.add(exitBeam);
-          activeRings.push({ mesh: exitBeam, scale: 0.2, opacity: 0.9, maxScale: 3.5 });
+            const daggerGroup = new THREE.Group();
+            
+            // Crescent dagger geometry (flat sharp diamond)
+            const dGeo = new THREE.ConeGeometry(0.18, 1.4, 4);
+            dGeo.rotateX(Math.PI / 2); // align to Z axis
+            const dMat = new THREE.MeshStandardMaterial({
+              color: 0x4a044e, // deep dark purple
+              emissive: 0xd946ef, // bright magenta edge
+              emissiveIntensity: 3.5,
+              roughness: 0.1
+            });
+            const dMesh = new THREE.Mesh(dGeo, dMat);
+            dMesh.name = "core";
+            daggerGroup.add(dMesh);
+
+            daggerGroup.position.set(playerPos.x, playerPos.y + 0.4, playerPos.z);
+            daggerGroup.lookAt(playerPos.clone().add(shotDir));
+            scene.add(daggerGroup);
+
+            activeWindArrows.push({
+              mesh: daggerGroup,
+              pos: daggerGroup.position.clone(),
+              dir: shotDir,
+              speed: 18.0,
+              age: 0.0,
+              maxAge: 1.8
+            });
+          }
 
         } else if (selectedClass.id === 'ranger') {
-          // 🏹 Windrunner: Galeforce Arrow
+          // 🏹 Windrunner: Cyclone Tempest (Radial 360-degree AOE Arrow Storm!)
           playSound('shoot');
-          addLog("🏹 Windrunner น้าวคันศรพัดส่ง [Galeforce Arrow] พายุสลาตันสีมรกตทะลวงแนวรบ!", "skill");
+          addLog("🏹 Windrunner น้าวคันศรร่ายพายุม้วนหัวหมุน [Cyclone Tempest Storm] ปลดปล่อยศรพายุสลาตัน 12 ทิศทางกวาดล้างรอบตัว!", "skill");
 
-          // Upgrade Arrow model to an impressive multi-layered wind-drilling Group
-          const arrowGroup = new THREE.Group();
-
-          // Core sharp emerald bolt
-          const arrowGeo = new THREE.CylinderGeometry(0.04, 0.22, 2.5, 8);
-          arrowGeo.rotateX(Math.PI / 2);
-          const arrowMat = new THREE.MeshStandardMaterial({
-            color: 0x059669,
-            emissive: 0x10b981,
-            emissiveIntensity: 2.5
-          });
-          const coreMesh = new THREE.Mesh(arrowGeo, arrowMat);
-          coreMesh.name = "core";
-          arrowGroup.add(coreMesh);
-
-          // Outer wind drilling wireframe helix
-          const helixGeo = new THREE.CylinderGeometry(0.4, 0.1, 2.8, 8, 4, true);
-          helixGeo.rotateX(Math.PI / 2);
-          const helixMat = new THREE.MeshStandardMaterial({
-            color: 0x34d399,
-            emissive: 0x059669,
-            emissiveIntensity: 3.5,
-            wireframe: true,
-            transparent: true,
-            opacity: 0.7
-          });
-          const helixMesh = new THREE.Mesh(helixGeo, helixMat);
-          helixMesh.name = "helix";
-          arrowGroup.add(helixMesh);
-
-          // Back trail vortex ring
-          const trailGeo = new THREE.TorusGeometry(0.5, 0.06, 8, 24);
-          const trailMat = new THREE.MeshBasicMaterial({
+          // 1. Create a beautiful green emerald gale shockwave ring on the floor
+          const galeRingGeo = new THREE.RingGeometry(0.1, 0.4, 32);
+          const galeRingMat = new THREE.MeshStandardMaterial({
             color: 0x10b981,
+            emissive: 0x34d399,
+            emissiveIntensity: 3.0,
+            side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.8
+            opacity: 0.9
           });
-          const trailMesh = new THREE.Mesh(trailGeo, trailMat);
-          trailMesh.position.z = -1.2;
-          trailMesh.name = "trail";
-          arrowGroup.add(trailMesh);
-
-          arrowGroup.position.set(playerPos.x, playerPos.y + 0.4, playerPos.z);
-          scene.add(arrowGroup);
-          const arrowMesh = arrowGroup;
-
-          const shotDir = new THREE.Vector3(facingLeft ? -1.0 : 1.0, 0.0, 0.0);
-          activeWindArrows.push({
-            mesh: arrowMesh,
-            pos: arrowMesh.position.clone(),
-            dir: shotDir,
-            speed: 21.0,
-            age: 0.0,
-            maxAge: 2.5
+          const galeRing = new THREE.Mesh(galeRingGeo, galeRingMat);
+          galeRing.rotation.x = -Math.PI / 2;
+          galeRing.position.set(playerPos.x, 0.05, playerPos.z);
+          scene.add(galeRing);
+          activeRings.push({
+            mesh: galeRing,
+            scale: 0.2,
+            opacity: 0.9,
+            maxScale: 14.5
           });
+
+          // 2. Spawn 12 wind arrows shooting outwards radially in 360 degrees
+          for (let i = 0; i < 12; i++) {
+            const angle = i * (Math.PI / 6); // 12 arrows, spaced 30 degrees apart
+            const shotDir = new THREE.Vector3(Math.cos(angle), 0.0, Math.sin(angle));
+
+            const arrowGroup = new THREE.Group();
+
+            // Core sharp emerald bolt
+            const arrowGeo = new THREE.CylinderGeometry(0.04, 0.22, 2.5, 8);
+            arrowGeo.rotateX(Math.PI / 2);
+            const arrowMat = new THREE.MeshStandardMaterial({
+              color: 0x059669,
+              emissive: 0x10b981,
+              emissiveIntensity: 2.5
+            });
+            const coreMesh = new THREE.Mesh(arrowGeo, arrowMat);
+            coreMesh.name = "core";
+            arrowGroup.add(coreMesh);
+
+            // Outer wind drilling wireframe helix
+            const helixGeo = new THREE.CylinderGeometry(0.4, 0.1, 2.8, 8, 4, true);
+            helixGeo.rotateX(Math.PI / 2);
+            const helixMat = new THREE.MeshStandardMaterial({
+              color: 0x34d399,
+              emissive: 0x059669,
+              emissiveIntensity: 3.5,
+              wireframe: true,
+              transparent: true,
+              opacity: 0.7
+            });
+            const helixMesh = new THREE.Mesh(helixGeo, helixMat);
+            helixMesh.name = "helix";
+            arrowGroup.add(helixMesh);
+
+            // Back trail vortex ring
+            const trailGeo = new THREE.TorusGeometry(0.5, 0.06, 8, 24);
+            const trailMat = new THREE.MeshBasicMaterial({
+              color: 0x10b981,
+              transparent: true,
+              opacity: 0.8
+            });
+            const trailMesh = new THREE.Mesh(trailGeo, trailMat);
+            trailMesh.position.z = -1.2;
+            trailMesh.name = "trail";
+            arrowGroup.add(trailMesh);
+
+            arrowGroup.position.set(playerPos.x, playerPos.y + 0.4, playerPos.z);
+            arrowGroup.lookAt(playerPos.clone().add(shotDir));
+            scene.add(arrowGroup);
+
+            activeWindArrows.push({
+              mesh: arrowGroup,
+              pos: arrowGroup.position.clone(),
+              dir: shotDir,
+              speed: 21.0,
+              age: 0.0,
+              maxAge: 2.5
+            });
+          }
         }
       }
     };
