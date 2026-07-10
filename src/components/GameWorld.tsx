@@ -433,6 +433,30 @@ export const GameWorld: React.FC<GameWorldProps> = ({
       maxScale: number;
     }> = [];
 
+    // Class skill trackers
+    let shieldMesh: THREE.Mesh | null = null;
+    let shieldActiveTimer = 0;
+
+    interface SkillMeteor {
+      mesh: THREE.Mesh;
+      pos: THREE.Vector3;
+      targetPos: THREE.Vector3;
+      progress: number;
+      speed: number;
+      explosionRadius: number;
+    }
+    const activeMeteors: SkillMeteor[] = [];
+
+    interface SkillWindArrow {
+      mesh: THREE.Mesh;
+      pos: THREE.Vector3;
+      dir: THREE.Vector3;
+      speed: number;
+      age: number;
+      maxAge: number;
+    }
+    const activeWindArrows: SkillWindArrow[] = [];
+
     // Slash hitboxes (P key)
     const activeHitboxes: Array<{
       mesh: THREE.Mesh;
@@ -577,6 +601,7 @@ export const GameWorld: React.FC<GameWorldProps> = ({
 
     // Player Gameplay mutable variables
     let playerLives = 5;
+    let currentMP = 100;
     let invincibilityTimer = 0;
     let score = 0;
     let gameIsOver = false;
@@ -885,6 +910,12 @@ export const GameWorld: React.FC<GameWorldProps> = ({
         if (defeatedEnemiesCount >= 10 && !bossSpawned) {
           spawnBoss();
         }
+
+        // 35% chance to drop a healing potion (item)
+        if (Math.random() < 0.35) {
+          spawnPotion(enemy.pos.x, enemy.pos.z);
+          addLog("💊 ศัตรูทำไอเทมยาฟื้นพลังชีวิต (POTION) ตกหล่นบนพื้น!", "info");
+        }
       }
     };
 
@@ -930,6 +961,12 @@ export const GameWorld: React.FC<GameWorldProps> = ({
         addLog("🎉 สำเร็จ! ฮีโร่ปราบ Boss ทลายสังเวียน! ประตูวาร์ป (WARP PORTAL) เปิดแล้ว!", "info");
         spawnWarpPortal(boss.pos.x, boss.pos.z);
         spawnNpc(boss.pos.x, boss.pos.z - 4);
+
+        // Spawn 3 victory potion drops around Boss position!
+        spawnPotion(boss.pos.x - 1.5, boss.pos.z - 1.5);
+        spawnPotion(boss.pos.x + 1.5, boss.pos.z - 1.5);
+        spawnPotion(boss.pos.x, boss.pos.z + 1.5);
+        addLog("💊 บอสถูกกำจัด! ค้นพบขวดยาฟื้นพลังขนาดใหญ่ 3 ขวดตกอยู่รอบสังเวียน!", "info");
       }
     };
 
@@ -1005,50 +1042,198 @@ export const GameWorld: React.FC<GameWorldProps> = ({
         }
       }
 
-      // Special Burst Ring: 'O'
+      // Special Burst Class Skill: 'O'
       if (k === 'o') {
-        playSound('burst');
-        addLog(`ระเบิดพลังออร่าวงแหวน [O] ขยายออกสะกดศัตรู!`, 'skill');
-        setPlayerMP(prev => Math.max(0, prev - 15));
+        if (currentMP < 25) {
+          playSound('move');
+          addLog("⚠️ พลังเวท (MP) ไม่เพียงพอในการร่ายสกิล! (ต้องการ 25 MP - ฟื้นฟูอัตโนมัติ)", "info");
+          return;
+        }
 
-        // Create elegant glowing physical 3D ring mesh
-        const ringGeo = new THREE.RingGeometry(0.1, 0.25, 32);
-        const ringMat = new THREE.MeshStandardMaterial({
-          color: 0x00ffff,
-          emissive: 0x00ffff,
-          emissiveIntensity: 1.5,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 1.0,
-          roughness: 0.2
-        });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.rotation.x = -Math.PI / 2; // lie flat on floor
-        ring.position.set(playerPos.x, 0.02, playerPos.z); // Hover slightly above ground tile
-        scene.add(ring);
+        // Deduct mana synchronously
+        currentMP -= 25;
+        setPlayerMP(Math.floor(currentMP));
 
-        activeRings.push({
-          mesh: ring,
-          scale: 0.2,
-          opacity: 1.0,
-          maxScale: 6.5
-        });
-
-        // Hit all enemies within range immediately
-        enemies.forEach(enemy => {
-          if (enemy.isDead) return;
-          const dist = playerPos.distanceTo(enemy.pos);
-          if (dist < 4.5) {
-            hitEnemy(enemy);
+        if (selectedClass.id === 'warrior') {
+          // 🛡️ Vanguard: Iron Fortress
+          shieldActiveTimer = 5.0;
+          playSound('burst');
+          addLog("🛡️ Vanguard เปิดใช้งาน [Iron Fortress]! สร้างบาเรียเหล็กสัจจะป้องกันดาเมจ 100% และสะท้อนความเสียหาย 5 วินาที!", "skill");
+          
+          if (shieldMesh) {
+            scene.remove(shieldMesh);
+            shieldMesh.geometry.dispose();
+            if (Array.isArray(shieldMesh.material)) shieldMesh.material.forEach(m => m.dispose());
+            else shieldMesh.material.dispose();
           }
-        });
 
-        // Hit Boss with Aura Ring
-        if (boss && !boss.isDead) {
-          const dist = playerPos.distanceTo(boss.pos);
-          if (dist < 5.2) {
-            hitBoss(2); // special skill does 2x damage!
+          // Create a glowing digital wireframe sphere shield around hero
+          const shieldGeo = new THREE.SphereGeometry(1.6, 24, 12);
+          const shieldMat = new THREE.MeshStandardMaterial({
+            color: 0xfacc15,
+            emissive: 0xfacc15,
+            emissiveIntensity: 1.8,
+            transparent: true,
+            opacity: 0.45,
+            wireframe: true
+          });
+          shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
+          shieldMesh.position.copy(playerPos);
+          shieldMesh.position.y = playerPos.y + 0.4;
+          scene.add(shieldMesh);
+
+        } else if (selectedClass.id === 'mage') {
+          // ☄️ Aether Mage: Supernova Strike
+          playSound('burst');
+          addLog("☄️ Aether Mage เริ่มต้นร่ายมหาเวทย์ [Supernova Strike] อัญเชิญดาวตกยักษ์ลงทัณฑ์ศัตรู!", "skill");
+
+          const offsetDist = facingLeft ? -7.0 : 7.0;
+          const targetPos = new THREE.Vector3(playerPos.x + offsetDist, 0.05, playerPos.z);
+          // Clamp target within arena
+          targetPos.x = THREE.MathUtils.clamp(targetPos.x, -22, 22);
+          targetPos.z = THREE.MathUtils.clamp(targetPos.z, -22, 22);
+
+          const startPos = new THREE.Vector3(targetPos.x - 5.0, 16.0, targetPos.z - 5.0);
+
+          // Meteor sphere
+          const meteorGeo = new THREE.SphereGeometry(1.0, 16, 16);
+          const meteorMat = new THREE.MeshStandardMaterial({
+            color: 0x3b82f6,
+            emissive: 0x8b5cf6,
+            emissiveIntensity: 3.5,
+            roughness: 0.1,
+            metalness: 0.8
+          });
+          const mMesh = new THREE.Mesh(meteorGeo, meteorMat);
+          mMesh.position.copy(startPos);
+          mMesh.castShadow = true;
+          scene.add(mMesh);
+
+          // Spawn ground indicator ring for blast radius
+          const indGeo = new THREE.RingGeometry(0.1, 5.5, 32);
+          const indMat = new THREE.MeshBasicMaterial({ color: 0x8b5cf6, side: THREE.DoubleSide, transparent: true, opacity: 0.35 });
+          const indMesh = new THREE.Mesh(indGeo, indMat);
+          indMesh.position.copy(targetPos);
+          indMesh.rotation.x = -Math.PI / 2;
+          scene.add(indMesh);
+          
+          activeRings.push({
+            mesh: indMesh,
+            scale: 1.0,
+            opacity: 0.35,
+            maxScale: 1.0
+          });
+
+          activeMeteors.push({
+            mesh: mMesh,
+            pos: startPos.clone(),
+            targetPos: targetPos.clone(),
+            progress: 0.0,
+            speed: 1.6, // Descends in approx 0.6 seconds
+            explosionRadius: 5.5
+          });
+
+        } else if (selectedClass.id === 'assassin') {
+          // 👤 Shadow Blade: Shadowstep Strike
+          let closestTarget: any = null;
+          let closestDist = 9999;
+          enemies.forEach(e => {
+            if (e.isDead) return;
+            const dist = playerPos.distanceTo(e.pos);
+            if (dist < closestDist && dist < 12) {
+              closestDist = dist;
+              closestTarget = e;
+            }
+          });
+          if (boss && !boss.isDead) {
+            const dist = playerPos.distanceTo(boss.pos);
+            if (dist < closestDist && dist < 14) {
+              closestDist = dist;
+              closestTarget = boss;
+            }
           }
+
+          // Leave a shadow smoke ring at starting position
+          const enterRingGeo = new THREE.RingGeometry(0.1, 0.4, 16);
+          const enterRingMat = new THREE.MeshBasicMaterial({ color: 0xa21caf, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+          const enterRing = new THREE.Mesh(enterRingGeo, enterRingMat);
+          enterRing.rotation.x = -Math.PI / 2;
+          enterRing.position.set(playerPos.x, 0.05, playerPos.z);
+          scene.add(enterRing);
+          activeRings.push({ mesh: enterRing, scale: 0.2, opacity: 0.8, maxScale: 4.5 });
+
+          if (closestTarget) {
+            // Instant blink behind target!
+            const offsetDir = (closestTarget.facingLeft ? 1.5 : -1.5);
+            const targetDest = new THREE.Vector3(closestTarget.pos.x + offsetDir, 1.82, closestTarget.pos.z + 0.05);
+            playerPos.copy(targetDest);
+            playerMesh.position.copy(playerPos);
+            facingLeft = (offsetDir > 0) ? false : true;
+
+            // Trigger physical strike
+            playSound('hit');
+            if (closestTarget === boss) {
+              hitBoss(6); // Heavy critical backstab damage on Boss
+              addLog("👤 [Shadowstep Strike] เคลื่อนย้ายเงามืดตลบหลัง Boss! แทงจุดตายจากเบื้องหลังอย่างรุนแรง! (ลดพลังบอส 6 หน่วย) 🗡️⚡", "skill");
+            } else {
+              hitEnemy(closestTarget);
+              hitEnemy(closestTarget); // Guaranteed double strike to execute minion
+              addLog("👤 [Shadowstep Strike] ลอบโจมตีกรีดเงามืดโผล่ด้านหลังมอนสเตอร์ ปลิดชีพเป้าหมายทันที! 🗡️💀", "skill");
+            }
+
+            // Splash damage nearby
+            enemies.forEach(e => {
+              if (e.isDead || e === closestTarget) return;
+              if (playerPos.distanceTo(e.pos) < 3.2) {
+                hitEnemy(e);
+              }
+            });
+          } else {
+            // Dash/Blink forward 7.0 units in facing direction
+            const blinkDist = facingLeft ? -7.0 : 7.0;
+            playerPos.x = THREE.MathUtils.clamp(playerPos.x + blinkDist, -22, 22);
+            playerMesh.position.copy(playerPos);
+            playSound('move');
+            addLog("👤 [Shadowstep Strike] ไร้ขอบเขตเป้าหมาย! ฮีโร่สไลด์ย้ายมิติพริบตาไปข้างหน้าอย่างไร้ร่องรอย!", "skill");
+          }
+
+          // Arrive visual ring at landing position
+          const exitRingGeo = new THREE.RingGeometry(0.1, 0.4, 16);
+          const exitRingMat = new THREE.MeshBasicMaterial({ color: 0x6b21a8, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+          const exitRing = new THREE.Mesh(exitRingGeo, exitRingMat);
+          exitRing.rotation.x = -Math.PI / 2;
+          exitRing.position.set(playerPos.x, 0.05, playerPos.z);
+          scene.add(exitRing);
+          activeRings.push({ mesh: exitRing, scale: 0.2, opacity: 0.8, maxScale: 4.5 });
+
+        } else if (selectedClass.id === 'ranger') {
+          // 🏹 Windrunner: Galeforce Arrow
+          playSound('shoot');
+          addLog("🏹 Windrunner น้าวคันศรพัดส่ง [Galeforce Arrow] พายุสลาตันสีมรกตทะลวงแนวรบ!", "skill");
+
+          // Arrow model
+          const arrowGeo = new THREE.CylinderGeometry(0.14, 0.35, 3.2, 12);
+          arrowGeo.rotateX(Math.PI / 2);
+          const arrowMat = new THREE.MeshStandardMaterial({
+            color: 0x10b981,
+            emissive: 0x34d399,
+            emissiveIntensity: 2.2,
+            transparent: true,
+            opacity: 0.85
+          });
+          const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+          arrowMesh.position.set(playerPos.x, playerPos.y + 0.4, playerPos.z);
+          scene.add(arrowMesh);
+
+          const shotDir = new THREE.Vector3(facingLeft ? -1.0 : 1.0, 0.0, 0.0);
+          activeWindArrows.push({
+            mesh: arrowMesh,
+            pos: arrowMesh.position.clone(),
+            dir: shotDir,
+            speed: 21.0,
+            age: 0.0,
+            maxAge: 2.5
+          });
         }
       }
     };
@@ -1135,6 +1320,12 @@ export const GameWorld: React.FC<GameWorldProps> = ({
         if (Math.random() < 0.08) {
           playSound('move');
         }
+      }
+
+      // Passive MP Regen (+4 per second)
+      if (!gameIsOver && currentMP < 100) {
+        currentMP = Math.min(100, currentMP + delta * 4);
+        setPlayerMP(Math.floor(currentMP));
       }
 
       // Arena boundary lock
@@ -1395,7 +1586,12 @@ export const GameWorld: React.FC<GameWorldProps> = ({
               enemy.attackFlashTimer = 0.35;
               enemy.attackCooldown = 2.0;
 
-              if (invincibilityTimer <= 0) {
+              if (shieldActiveTimer > 0) {
+                playSound('burst');
+                addLog(`🛡️ [Iron Fortress] สะท้อนและปัดป้องการโจมตีจากระยะประชิดอย่างเด็ดขาด! สะท้อนความเสียหายฟันศัตรูคืน!`, 'skill');
+                hitEnemy(enemy);
+                invincibilityTimer = 0.35; // Brief iframe buffer
+              } else if (invincibilityTimer <= 0) {
                 playerLives--;
                 setPlayerLives(playerLives);
                 setPlayerHP(playerLives * 20);
@@ -1549,7 +1745,12 @@ export const GameWorld: React.FC<GameWorldProps> = ({
           // Hit detection on Player
           const distToPlayer = playerPos.distanceTo(fb.targetPos);
           if (distToPlayer < 1.6 && !gameIsOver) {
-            if (invincibilityTimer <= 0) {
+            if (shieldActiveTimer > 0) {
+              playSound('burst');
+              addLog(`🛡️ [Iron Fortress] โล่บาเรียเหล็กสัจจะป้องกันการระเบิดของบอสได้อย่างราบคาบ พร้อมสะท้อนคืน 2 ดาเมจ!`, 'skill');
+              hitBoss(2);
+              invincibilityTimer = 0.35; // Brief iframe buffer
+            } else if (invincibilityTimer <= 0) {
               playerLives--;
               setPlayerLives(playerLives);
               setPlayerHP(playerLives * 20);
@@ -1722,6 +1923,133 @@ export const GameWorld: React.FC<GameWorldProps> = ({
             r.mesh.material.dispose();
           }
           activeRings.splice(i, 1);
+        }
+      }
+
+      // Update Warrior Shield Mesh position & animation
+      if (shieldActiveTimer > 0) {
+        shieldActiveTimer -= delta;
+        if (shieldMesh) {
+          shieldMesh.position.copy(playerPos);
+          shieldMesh.position.y = playerPos.y + 0.4; // Center around player body
+          shieldMesh.rotation.y += delta * 2.5;
+          shieldMesh.rotation.x += delta * 1.2;
+        }
+        if (shieldActiveTimer <= 0) {
+          if (shieldMesh) {
+            scene.remove(shieldMesh);
+            shieldMesh.geometry.dispose();
+            if (Array.isArray(shieldMesh.material)) shieldMesh.material.forEach(m => m.dispose());
+            else shieldMesh.material.dispose();
+            shieldMesh = null;
+            addLog("🛡️ โล่บาเรียเหล็กสัจจะ [Iron Fortress] ของ Vanguard สลายตัวไปแล้ว", "info");
+          }
+        }
+      }
+
+      // Update Falling Meteors (Aether Mage)
+      for (let i = activeMeteors.length - 1; i >= 0; i--) {
+        const met = activeMeteors[i];
+        met.progress += delta * met.speed;
+        
+        // Animate rotational spin
+        met.mesh.rotation.y += delta * 6;
+        met.mesh.rotation.x += delta * 3;
+
+        const currentPos = new THREE.Vector3().lerpVectors(met.pos, met.targetPos, met.progress);
+        met.mesh.position.copy(currentPos);
+
+        if (met.progress >= 1.0) {
+          // Explode at destination!
+          playSound('burst');
+          
+          // Elegant visual impact shockwave
+          const ringGeo = new THREE.RingGeometry(0.1, 0.4, 32);
+          const ringMat = new THREE.MeshStandardMaterial({
+            color: 0x3b82f6,
+            emissive: 0x8b5cf6,
+            emissiveIntensity: 2.5,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 1.0
+          });
+          const ring = new THREE.Mesh(ringGeo, ringMat);
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.set(met.targetPos.x, 0.05, met.targetPos.z);
+          scene.add(ring);
+          activeRings.push({
+            mesh: ring,
+            scale: 0.1,
+            opacity: 1.0,
+            maxScale: 11.5 // Massive supernova field!
+          });
+
+          // Hit detection
+          enemies.forEach(enemy => {
+            if (enemy.isDead) return;
+            const dist = enemy.pos.distanceTo(met.targetPos);
+            if (dist < met.explosionRadius) {
+              hitEnemy(enemy);
+            }
+          });
+
+          if (boss && !boss.isDead) {
+            const dist = boss.pos.distanceTo(met.targetPos);
+            if (dist < met.explosionRadius) {
+              hitBoss(5); // Massive chunk damage!
+            }
+          }
+
+          addLog("☄️ [Supernova Strike] ระเบิดดาวตกมิติกวาดล้างศัตรูทั้งระนาบอย่างรุนแรง! 💥💫", "skill");
+
+          // Clean up meteor mesh
+          scene.remove(met.mesh);
+          met.mesh.geometry.dispose();
+          if (Array.isArray(met.mesh.material)) met.mesh.material.forEach(m => m.dispose());
+          else met.mesh.material.dispose();
+          activeMeteors.splice(i, 1);
+        }
+      }
+
+      // Update Wind Projectiles (Windrunner)
+      for (let i = activeWindArrows.length - 1; i >= 0; i--) {
+        const arrow = activeWindArrows[i];
+        arrow.age += delta;
+
+        arrow.pos.addScaledVector(arrow.dir, arrow.speed * delta);
+        arrow.mesh.position.copy(arrow.pos);
+        arrow.mesh.rotation.z += delta * 20.0; // Rapidly spin the arrow like a drilling vortex!
+
+        // Collisions with regular enemies
+        enemies.forEach(enemy => {
+          if (enemy.isDead) return;
+          const dist = enemy.pos.distanceTo(arrow.pos);
+          if (dist < 2.5) {
+            // Knockback push away from hero
+            const pushDir = arrow.dir.clone().normalize();
+            enemy.pos.addScaledVector(pushDir, 3.5);
+            enemy.mesh.position.copy(enemy.pos);
+            hitEnemy(enemy);
+          }
+        });
+
+        // Collisions with Boss
+        if (boss && !boss.isDead) {
+          const dist = boss.pos.distanceTo(arrow.pos);
+          if (dist < 3.2) {
+            const pushDir = arrow.dir.clone().normalize();
+            boss.pos.addScaledVector(pushDir, 1.2);
+            boss.mesh.position.copy(boss.pos);
+            hitBoss(3); // 3 Damage
+          }
+        }
+
+        if (arrow.age >= arrow.maxAge) {
+          scene.remove(arrow.mesh);
+          arrow.mesh.geometry.dispose();
+          if (Array.isArray(arrow.mesh.material)) arrow.mesh.material.forEach(m => m.dispose());
+          else arrow.mesh.material.dispose();
+          activeWindArrows.splice(i, 1);
         }
       }
 
